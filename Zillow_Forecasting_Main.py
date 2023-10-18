@@ -22,7 +22,7 @@ if __name__ == "__main__":
             name TEXT(1000)
             );
             """).df()
-
+    #Loading the images
         print(cursor.query(f"""
             INSERT INTO home_data (name) VALUES ("Image11.png");
             """).df())
@@ -54,13 +54,6 @@ if __name__ == "__main__":
             INSERT INTO home_data (name) VALUES ("Image1010.png");
             """).df())
 
-        # print(cursor.query(f"""
-        #     SHOW TABLES;
-        #     """).df())
-        # pd.set_option('display.max_colwidth', None)
-        # select_query = cursor.query(f"SELECT * FROM home_data;").df()
-
-        # print(select_query)
 
 
         cursor.query(f"""
@@ -88,7 +81,8 @@ if __name__ == "__main__":
         """).df()
 
         cursor.query("DROP TABLE IF EXISTS data_extracted_23;").df()
-        
+
+    #Scraping the data from iages and storing it in table
         print(cursor.query(f"""
            CREATE TABLE IF NOT EXISTS data_extracted_23 AS
            SELECT name,WebPageTextExtractor(name)
@@ -102,18 +96,22 @@ if __name__ == "__main__":
 
         cursor.query("DROP TABLE IF EXISTS final_data_11;").df()
 
+    #Using chatGPT to extract useful information from the scraped data
         cursor.query(f"""
             CREATE TABLE IF NOT EXISTS final_data_11 AS 
             SELECT StringToDataframe(
-                ChatGPT("Extract these fields from the row: price, beds, bath, area, address. 
-                Do not give code or instructions. Return the fields.
-                Here is an example (use it only for the output format, not for the content):
+                ChatGPT("Extract these fields from the row: price, beds, bath, area, address, date. 
+                  Do not give code or instructions. Return the fields.
+                  Remove the S from price. Remove all the commas.
+                  Remove sqft from area column values.
+                  Here is an example (use it only for the output format, not for the content):
 
                 price: $450,000
                 beds: 3 bds
                 bath: 1 ba
                 area: 1600 sqft
                 address: 5233 N Emerson Dr, Portland, OR 97217
+                date: September 11, 2023
                 
            
                 
@@ -132,51 +130,34 @@ if __name__ == "__main__":
 
         print(select_query)
 
-    #     select_query.to_csv("insights.csv", index=False)
+        np.seterr(divide='ignore', invalid='ignore')
+        
+        #We use statsforecast engine to train a time serise forecast model for sale prices of home
+        cursor.query(f"""
+        DROP FUNCTION IF EXISTS HomeSaleForecast;
+        """).df()
 
-    #     exit(0)
-
-    #    # Create a dictionary to count starred repositories and the users who starred them
-    #     repository_counts = {}
-
-    #     # Iterate through users and their starred repositories
-    #     for _, user in users_with_more_than_100_followers.iterrows():
-    #         starred_repos = eval(user['stargazerdetails.user_starred_repos'])
+        # pu.db
+        cursor.query("""
+            CREATE FUNCTION HomeSaleForecast FROM
+                (
+                SELECT price,date
+                FROM final_data_11
             
-    #         for repo in starred_repos:
-    #             prefix = "https://github.com"
-    #             repo_url = None
-
-    #             for repo_element in list(repo):
-    #                 if repo_element is None:
-    #                     continue
-    #                 if repo_element.startswith(prefix):
-    #                     repo_url = repo_element
-
-    #             if repo_url:
-    #                 if repo_url not in repository_counts:
-    #                     repository_counts[repo_url] = {'count': 1, 'users': {user['stargazerlist.github_username']}}
-    #                 else:
-    #                     repository_counts[repo_url]['count'] += 1
-    #                     repository_counts[repo_url]['users'].add(user['stargazerlist.github_username'])
-
-    #     # Sort the repositories by the number of users who have starred them
-    #     sorted_repositories = sorted(repository_counts.items(), key=lambda x: x[1]['count'], reverse=True)
-
-    #     # Specify the value of 'k' for the top k repositories
-    #     k = 10
-
-    #     # Get the top k repositories and their star counts
-    #     top_k_repositories = sorted_repositories[:k]
-
-    #     # Print the top k repositories and the number of users who have starred them
-    #     for repo_url, data in top_k_repositories:
-    #         star_count = data['count']
-    #         star_users_count = len(data['users'])
-            
-    #         print(f"Repository URL: {repo_url}")
-    #         print(f"Number of Users Who Starred It: {star_count}")
-    #         print()
+                )
+            TYPE Forecasting
+            PREDICT 'price'
+            HORIZON 4
+            TIME 'date'
+            FREQUENCY 'M';
+        """).df()
+        
+        #We then use the HomeSaleForecast model to predict the sale price for homes for the next four months.
+        
+        output= cursor.query("""SELECT
+                    HomeSaleForecast(4);""").df()
+        print(output)
+   
 
     except Exception as e:
         print(f"❗️ EvaDB Session ended with an error: {e}")
